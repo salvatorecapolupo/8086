@@ -1,0 +1,1449 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMU8086 — Internetworking Vol.1</title>
+<style>
+:root {
+  --bg: #0d1117; --bg2: #161b22; --bg3: #21262d;
+  --border: #30363d; --text: #c9d1d9; --muted: #8b949e;
+  --green: #3fb950; --green-bg: #0d2818;
+  --blue: #58a6ff; --amber: #d29922; --amber-bg: #271e0a;
+  --red: #f85149; --red-bg: #2d0e0e; --purple: #bc8cff;
+  --comment: #4a7c3f; --keyword: #ff7b72; --directive: #d2a679;
+  --mono: 'Courier New', Courier, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background:var(--bg); color:var(--text); font-family:system-ui,sans-serif; font-size:13px; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+header { background:var(--bg2); border-bottom:1px solid var(--border); padding:8px 14px; display:flex; align-items:center; gap:12px; flex-shrink:0; }
+header h1 { font-size:14px; font-weight:600; color:var(--blue); }
+header span { color:var(--muted); font-size:11px; }
+.toolbar { display:flex; gap:6px; margin-left:auto; }
+button { background:var(--bg3); border:1px solid var(--border); color:var(--text); padding:5px 12px; border-radius:6px; cursor:pointer; font-size:12px; transition:background .15s; }
+button:hover { background:#2d333b; }
+button.primary { background:var(--green-bg); border-color:var(--green); color:var(--green); }
+button.primary:hover { background:#0f3820; }
+button.danger  { background:var(--red-bg);   border-color:var(--red);   color:var(--red);   }
+.main { display:grid; grid-template-columns:1fr 290px; grid-template-rows:1fr 170px; gap:1px; background:var(--border); flex:1; overflow:hidden; }
+.panel { background:var(--bg); overflow:hidden; display:flex; flex-direction:column; }
+.panel-header { background:var(--bg2); border-bottom:1px solid var(--border); padding:5px 10px; font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.8px; flex-shrink:0; }
+.right-col { grid-row:1/3; overflow-y:auto; }
+
+/* Editor */
+#editor-wrap { flex:1; position:relative; overflow:hidden; display:flex; }
+#line-nums { width:40px; padding:10px 6px; text-align:right; font-family:var(--mono); font-size:13px; line-height:1.75; color:var(--muted); border-right:1px solid var(--border); background:var(--bg2); flex-shrink:0; overflow:hidden; user-select:none; }
+#editor { flex:1; background:var(--bg); color:var(--text); font-family:var(--mono); font-size:13px; line-height:1.75; border:none; outline:none; resize:none; padding:10px 12px; tab-size:4; overflow:auto; white-space:pre; }
+/* current line highlight */
+#editor-hl { position:absolute; left:40px; right:0; height:1.75em; background:rgba(88,166,255,.08); pointer-events:none; display:none; }
+
+/* Output */
+#output { flex:1; font-family:var(--mono); font-size:12px; padding:8px 12px; overflow-y:auto; line-height:1.6; }
+.ok   { color:var(--green); } .err { color:var(--red); }
+.info { color:var(--blue);  } .warn{ color:var(--amber); }
+.io   { color:var(--purple);}
+
+/* Right panel */
+.reg-section { padding:10px 12px; border-bottom:1px solid var(--border); }
+.reg-section h3 { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.8px; margin-bottom:8px; }
+.reg-grid { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+.reg-item { background:var(--bg2); border:1px solid var(--border); border-radius:5px; padding:5px 8px; display:flex; justify-content:space-between; align-items:center; }
+.reg-item.changed { border-color:var(--amber); background:var(--amber-bg); }
+.reg-name { font-size:11px; color:var(--muted); font-weight:600; }
+.reg-val  { font-family:var(--mono); font-size:12px; color:var(--green); }
+.reg-item.changed .reg-val { color:var(--amber); }
+.flags-row { display:flex; gap:4px; flex-wrap:wrap; }
+.flag-badge { background:var(--bg3); border:1px solid var(--border); border-radius:4px; padding:2px 6px; font-size:11px; font-family:var(--mono); }
+.flag-badge.on { background:var(--green-bg); border-color:var(--green); color:var(--green); }
+.stack-list,.mem-dump { font-family:var(--mono); font-size:11px; line-height:1.8; padding:4px 0; max-height:120px; overflow-y:auto; }
+.stack-item,.mem-row { display:flex; gap:8px; padding:0 2px; }
+.stack-addr,.mem-addr { color:var(--muted); min-width:52px; }
+.stack-v { color:var(--purple); }
+.mem-bytes { color:var(--blue); }
+.mem-ascii { color:var(--muted); }
+.sp-marker { color:var(--amber); font-size:10px; }
+
+#status-bar { background:var(--bg2); border-top:1px solid var(--border); padding:4px 14px; font-size:11px; color:var(--muted); display:flex; gap:16px; flex-shrink:0; }
+#status-bar span { color:var(--text); }
+</style>
+</head>
+<body>
+<header>
+  <h1>EMU8086</h1>
+  <span>Internetworking Vol.1 — sintassi EMU8086 originale</span>
+  <div class="toolbar">
+    <button class="primary" id="btn-run">&#9654; Esegui</button>
+    <button id="btn-pause" style="display:none">&#9646;&#9646; Pausa</button>
+    <button id="btn-step">&#9197; Step</button>
+    <button id="btn-reset">&#8634; Reset</button>
+    <button class="danger" id="btn-clear">&#10005; Output</button>
+    <select id="ex-select" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:6px;font-size:12px;cursor:pointer;max-width:210px">
+      <option value="0">01 - MOV e registri</option>
+      <option value="1">02 - ADD/SUB 8-bit</option>
+      <option value="2">03 - INC/DEC e flag</option>
+      <option value="3">04 - MUL e DIV</option>
+      <option value="4">05 - AND OR XOR TEST</option>
+      <option value="5">06 - SHL SHR shift</option>
+      <option value="6">07 - JMP JE JG JL</option>
+      <option value="7">08 - LOOP ciclo for</option>
+      <option value="8">09 - JNE ciclo while</option>
+      <option value="9">10 - CALL RET procedura</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:6px;color:var(--muted);font-size:11px;margin-left:6px">
+      <span>Vel.</span>
+      <input type="range" id="speed-slider" min="1" max="6" value="3" style="width:70px;accent-color:var(--blue);cursor:pointer">
+      <span id="speed-label" style="color:var(--text);min-width:44px">media</span>
+    </label>
+  </div>
+</header>
+
+<div class="main">
+  <div class="panel" style="grid-column:1;grid-row:1">
+    <div class="panel-header">sorgente .asm</div>
+    <div id="editor-wrap">
+      <div id="line-nums"></div>
+      <div id="editor-hl"></div>
+      <textarea id="editor" spellcheck="false"></textarea>
+    </div>
+  </div>
+
+  <div class="panel" style="grid-column:1;grid-row:2">
+    <div class="panel-header">output / console</div>
+    <div id="output"></div>
+  </div>
+
+  <div class="panel right-col" style="grid-column:2;grid-row:1/3">
+    <div class="panel-header">registri &amp; stato</div>
+
+    <div class="reg-section">
+      <h3>Generali (16-bit / 8-bit)</h3>
+      <div class="reg-grid">
+        <div class="reg-item" id="ri-AX"><span class="reg-name">AX</span><span class="reg-val" id="rv-AX">0000</span></div>
+        <div class="reg-item" id="ri-AHL"><span class="reg-name">AH·AL</span><span class="reg-val" id="rv-AHL">00·00</span></div>
+        <div class="reg-item" id="ri-BX"><span class="reg-name">BX</span><span class="reg-val" id="rv-BX">0000</span></div>
+        <div class="reg-item" id="ri-BHL"><span class="reg-name">BH·BL</span><span class="reg-val" id="rv-BHL">00·00</span></div>
+        <div class="reg-item" id="ri-CX"><span class="reg-name">CX</span><span class="reg-val" id="rv-CX">0000</span></div>
+        <div class="reg-item" id="ri-CHL"><span class="reg-name">CH·CL</span><span class="reg-val" id="rv-CHL">00·00</span></div>
+        <div class="reg-item" id="ri-DX"><span class="reg-name">DX</span><span class="reg-val" id="rv-DX">0000</span></div>
+        <div class="reg-item" id="ri-DHL"><span class="reg-name">DH·DL</span><span class="reg-val" id="rv-DHL">00·00</span></div>
+      </div>
+    </div>
+
+    <div class="reg-section">
+      <h3>Indice &amp; Puntatori</h3>
+      <div class="reg-grid">
+        <div class="reg-item" id="ri-SI"><span class="reg-name">SI</span><span class="reg-val" id="rv-SI">0000</span></div>
+        <div class="reg-item" id="ri-DI"><span class="reg-name">DI</span><span class="reg-val" id="rv-DI">0000</span></div>
+        <div class="reg-item" id="ri-SP"><span class="reg-name">SP</span><span class="reg-val" id="rv-SP">0100</span></div>
+        <div class="reg-item" id="ri-BP"><span class="reg-name">BP</span><span class="reg-val" id="rv-BP">0000</span></div>
+        <div class="reg-item" id="ri-IP"><span class="reg-name">IP</span><span class="reg-val" id="rv-IP">0000</span></div>
+      </div>
+    </div>
+
+    <div class="reg-section">
+      <h3>Segmenti</h3>
+      <div class="reg-grid">
+        <div class="reg-item" id="ri-CS"><span class="reg-name">CS</span><span class="reg-val" id="rv-CS">0000</span></div>
+        <div class="reg-item" id="ri-DS"><span class="reg-name">DS</span><span class="reg-val" id="rv-DS">0000</span></div>
+        <div class="reg-item" id="ri-SS"><span class="reg-name">SS</span><span class="reg-val" id="rv-SS">0000</span></div>
+        <div class="reg-item" id="ri-ES"><span class="reg-name">ES</span><span class="reg-val" id="rv-ES">0000</span></div>
+      </div>
+    </div>
+
+    <div class="reg-section">
+      <h3>Flag</h3>
+      <div class="flags-row">
+        <span class="flag-badge" id="f-CF">CF</span>
+        <span class="flag-badge" id="f-ZF">ZF</span>
+        <span class="flag-badge" id="f-SF">SF</span>
+        <span class="flag-badge" id="f-OF">OF</span>
+        <span class="flag-badge" id="f-PF">PF</span>
+        <span class="flag-badge" id="f-AF">AF</span>
+        <span class="flag-badge" id="f-DF">DF</span>
+        <span class="flag-badge" id="f-IF">IF</span>
+      </div>
+    </div>
+
+    <div class="reg-section">
+      <h3>Stack</h3>
+      <div class="stack-list" id="stack-view"></div>
+    </div>
+
+    <div class="reg-section">
+      <h3>Memoria DS (primi 64 byte)</h3>
+      <div class="mem-dump" id="mem-view"></div>
+    </div>
+  </div>
+</div>
+
+<div id="status-bar">
+  <div>IP: <span id="st-ip">0000h</span></div>
+  <div>Istruzione: <span id="st-instr">—</span></div>
+  <div>Cicli: <span id="st-cycles">0</span></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// DEFAULT PROGRAM (sintassi libro)
+// ═══════════════════════════════════════════════════════
+const EXAMPLES = [
+
+// 01 - MOV e registri
+`name "MOV e Registri"
+; Obiettivo: capire come MOV copia valori
+; tra registri, da immediato e da/verso memoria.
+
+data segment
+    a   DB 0Ah      ; 10 decimale
+    b   DW 0200h    ; 512 decimale
+    c   DB ?        ; non inizializzata
+    pkey db "press any key...$"
+ends
+stack segment
+    dw 128 dup(0)
+ends
+code segment
+start:
+    mov ax, data
+    mov ds, ax
+    mov es, ax
+
+    mov al, 0FFh    ; immediato -> registro 8-bit
+    mov ah, 00h     ; azzera AH -> AX = 00FFh
+    mov bx, ax      ; registro -> registro 16-bit
+    mov cl, a       ; memoria  -> registro 8-bit (cl = 0Ah)
+    mov c,  cl      ; registro -> memoria
+    mov dx, b       ; memoria 16-bit -> DX
+
+    lea dx, pkey
+    mov ah, 9
+    int 21h
+    mov ah, 1
+    int 21h
+    mov ax, 4c00h
+    int 21h
+ends
+end start`,
+
+// 02 - ADD/SUB 8-bit
+`name "ADD e SUB"
+; Somma e sottrae due byte.
+; Osservare i flag ZF, SF, CF dopo ogni operazione.
+
+data segment
+    num1 DB 1Ah     ; 26
+    num2 DB 0D2h    ; 210
+    ris  DB 00h
+    pkey db "press any key...$"
+ends
+stack segment
+    dw 128 dup(0)
+ends
+code segment
+start:
+    mov ax, data
+    mov ds, ax
+    mov es, ax
+
+    mov al, 00h
+    mov bl, 00h
+    mov al, num1    ; AL = 1Ah
+    mov bl, num2    ; BL = D2h
+    add al, bl      ; AL = ECh, CF=0
+    mov ris, al
+
+    ; sottrazione: al - bl -> risultato negativo
+    mov al, num1    ; AL = 1Ah
+    sub al, bl      ; AL = 1Ah - D2h -> negativo: SF=1, CF=1
+    ; AL ora contiene il complemento a 2 del risultato
+
+    lea dx, pkey
+    mov ah, 9
+    int 21h
+    mov ah, 1
+    int 21h
+    mov ax, 4c00h
+    int 21h
+ends
+end start`,
+
+// 03 - INC/DEC e flag
+`name "INC e DEC"
+; INC e DEC aggiornano ZF e SF ma NON CF.
+; Usato tipicamente come contatore di loop.
+
+data segment
+    cont DB 00h
+    pkey db "press any key...$"
+ends
+stack segment
+    dw 128 dup(0)
+ends
+code segment
+start:
+    mov ax, data
+    mov ds, ax
+    mov es, ax
+
+    mov al, 00h
+
+    inc al          ; AL = 01h
+    inc al          ; AL = 02h
+    inc al          ; AL = 03h
+    mov cont, al
+
+    dec al          ; AL = 02h
+    dec al          ; AL = 01h
+    dec al          ; AL = 00h -> ZF = 1
+    dec al          ; AL = FFh -> SF = 1 (underflow senza segno)
+
+    lea dx, pkey
+    mov ah, 9
+    int 21h
+    mov ah, 1
+    int 21h
+    mov ax, 4c00h
+    int 21h
+ends
+end start`,
+
+// 04 - MUL e DIV
+`name "MUL e DIV"
+; MUL:  AX = AL * operando (8-bit)
+; DIV:  AL = AX / operando, AH = resto
+
+data segment
+    a    DB 0Ch     ; 12
+    b    DB 07h     ; 7
+    div4 DB 04h
+    prod DW 0000h
+    quot DB 00h
+    rem  DB 00h
+    pkey db "press any key...$"
+ends
+stack segment
+    dw 128 dup(0)
+ends
+code segment
+start:
+    mov ax, data
+    mov ds, ax
+    mov es, ax
+
+    ; moltiplicazione: 12 * 7 = 84 = 54h
+    mov ax, 0000h
+    mov al, a
+    mov bl, b
+    mul bl          ; AX = 0054h
+    mov prod, ax
+
+    ; divisione: 84 / 4 = quoziente 21, resto 0
+    div div4        ; AL = 15h (21), AH = 00h
+    mov quot, al
+    mov rem,  ah
+
+    lea dx, pkey
+    mov ah, 9
+    int 21h
+    mov ah, 1
+    int 21h
+    mov ax, 4c00h
+    int 21h
+ends
+end start`,
+
+// 05 - AND OR XOR TEST
+`name "Logica Bitwise"
+; AND: maschera bit
+; OR:  forza bit a 1
+; XOR: toggle bit / azzera registro
+; TEST: controlla bit senza modificare
+
+data segment
+    v    DB 0B7h    ; 1011 0111
+    pkey db "press any key...$"
+ends
+stack segment
+    dw 128 dup(0)
+ends
+code segment
+start:
+    mov ax, data
+    mov ds, ax
+    mov es, ax
+
+    mov al, v       ; AL = B7h
+
+    ; isola nibble alto (azzera nibble basso)
+    and al, 0F0h    ; AL = B0h
+
+    mov al, v
+    ; forza bit 3 a 1
+    or  al, 08h     ; AL = BFh
+
+    ; XOR con se stesso: azzera (ZF=1)
+    xor al, al      ; AL = 00h, ZF = 1
+
+    mov al, v
+    ; TEST bit 0: dispari? ZF=0 se dispari
+    test al, 01h    ; ZF = 0 (B7h e' dispari)
+
+    lea dx, pkey
+    mov ah, 9
+    int 21h
+    mov ah, 1
+    int 21h
+    mov ax, 4c00h
+    int 21h
+ends
+end start`,
+
+// 06 - SHL SHR
+`name "Shift Bit"
+; SHL n: moltiplica per 2^n
+; SHR n: divide per 2^n (unsigned)
+; Il bit uscente finisce in CF.
+
+data segment
+    v    DB 04h     ; 0000 0100
+    pkey db "press any key...$"
+ends
+stack segment
+    dw 128 dup(0)
+ends
+code segment
+start:
+    mov ax, data
+    mov ds, ax
+    mov es, ax
+
+    mov al, v       ; AL = 04h
+
+    shl al, 1       ; AL = 08h  (* 2)
+    shl al, 1       ; AL = 10h  (* 2)
+    shl al, 2       ; AL = 40h  (* 4)
+    shl al, 1       ; AL = 80h  CF=0
+    shl al, 1       ; AL = 00h  CF=1 (bit uscito)
+
+    mov al, 0F0h    ; 1111 0000
+    shr al, 1       ; AL = 78h  CF=0
+    shr al, 1       ; AL = 3Ch  CF=0
+    shr al, 2       ; AL = 0Fh
+
+    lea dx, pkey
+    mov ah, 9
+    int 21h
+    mov ah, 1
+    int 21h
+    mov ax, 4c00h
+    int 21h
+ends
+end start`,
+
+// 07 - JMP JE JG JL
+`name "Jump condizionati"
+; CMP imposta i flag senza modificare gli operandi.
+; Prova a cambiare num1/num2 per vedere path diversi.
+
+data segment
+    num1 DB 25h     ; prova: 25h > 10h, 05h < 10h, 10h = 10h
+    num2 DB 10h
+    magg DB 00h
+    pkey db "press any key...$"
+ends
+stack segment
+    dw 128 dup(0)
+ends
+code segment
+start:
+    mov ax, data
+    mov ds, ax
+    mov es, ax
+
+    mov al, 00h
+    mov bl, 00h
+    mov al, num1
+    mov bl, num2
+
+    cmp al, bl      ; confronta AL e BL -> aggiorna ZF SF OF CF
+
+    je  uguale      ; ZF=1
+    jg  maggiore    ; ZF=0 e SF=OF
+    jl  minore      ; SF!=OF
+    jmp fine
+
+uguale:
+    mov magg, al
+    jmp fine
+
+maggiore:
+    mov magg, al
+    jmp fine
+
+minore:
+    mov magg, bl
+
+fine:
+    lea dx, pkey
+    mov ah, 9
+    int 21h
+    mov ah, 1
+    int 21h
+    mov ax, 4c00h
+    int 21h
+ends
+end start`,
+
+// 08 - LOOP
+`name "Ciclo LOOP"
+; LOOP usa CX come contatore.
+; Ogni iterazione: CX-- poi se CX!=0 salta.
+; Somma i primi N interi: 1+2+3+4+5 = 15 = 0Fh
+
+data segment
+    n    DB 05h
+    ris  DW 0000h
+    pkey db "press any key...$"
+ends
+stack segment
+    dw 128 dup(0)
+ends
+code segment
+start:
+    mov ax, data
+    mov ds, ax
+    mov es, ax
+
+    mov cl, n
+    mov ch, 00h     ; CX = 5
+    mov ax, 0000h
+
+ciclo:
+    add ax, cx      ; AX += CX corrente (5,4,3,2,1)
+    loop ciclo      ; CX--; se CX!=0 ripeti
+
+    mov ris, ax     ; AX = 000Fh (15)
+
+    lea dx, pkey
+    mov ah, 9
+    int 21h
+    mov ah, 1
+    int 21h
+    mov ax, 4c00h
+    int 21h
+ends
+end start`,
+
+// 09 - JNE ciclo while
+`name "Ciclo while JNE"
+; Equivalente a: while (cx != 0) { ax += 2; cx--; }
+; Differenza da LOOP: CMP e JE/JNE sono espliciti
+; -> i flag sono visibili a ogni iterazione.
+
+data segment
+    conta DB 05h
+    acc   DW 0000h
+    pkey db "press any key...$"
+ends
+stack segment
+    dw 128 dup(0)
+ends
+code segment
+start:
+    mov ax, data
+    mov ds, ax
+    mov es, ax
+
+    mov cl, conta
+    mov ch, 00h     ; CX = 5
+    mov ax, 0000h
+
+ciclo:
+    cmp cx, 0000h   ; CX == 0?
+    je  fine
+    add ax, 0002h   ; AX += 2
+    dec cx
+    jmp ciclo       ; torna al controllo
+
+fine:
+    mov acc, ax     ; AX = 000Ah (10)
+
+    lea dx, pkey
+    mov ah, 9
+    int 21h
+    mov ah, 1
+    int 21h
+    mov ax, 4c00h
+    int 21h
+ends
+end start`,
+
+// 10 - CALL RET
+`name "Procedura CALL RET"
+; CALL salva IP+1 nello stack e salta alla label.
+; RET estrae l'indirizzo e torna al chiamante.
+; Osservare lo stack durante l'esecuzione step.
+
+data segment
+    n    DW 0007h   ; 7
+    ris  DW 0000h
+    pkey db "press any key...$"
+ends
+stack segment
+    dw 128 dup(0)
+ends
+code segment
+start:
+    mov ax, data
+    mov ds, ax
+    mov es, ax
+
+    mov ax, n       ; AX = 7
+    call raddoppia  ; AX = 14, stack: [indirizzo ritorno]
+    mov ris, ax
+    call raddoppia  ; AX = 28
+    mov ris, ax
+    call raddoppia  ; AX = 56
+    mov ris, ax
+
+    lea dx, pkey
+    mov ah, 9
+    int 21h
+    mov ah, 1
+    int 21h
+    mov ax, 4c00h
+    int 21h
+
+raddoppia:
+    shl ax, 1       ; AX * 2
+    ret
+
+ends
+end start`
+
+]; // fine EXAMPLES
+
+const DEFAULT = EXAMPLES[0];
+
+// ═══════════════════════════════════════════════════════
+// CPU STATE
+// ═══════════════════════════════════════════════════════
+const DS_BASE  = 0x10000; // DS fisico: segmento 0x1000 → offset 0x10000
+const SS_BASE  = 0x20000; // SS fisico
+const MEM_SIZE = 0x30000;
+
+let mem, regs, flags, ip, cycles;
+let instList = [];   // [{src, lineNo, srcLineIdx}]
+let labels   = {};   // name → ip index
+let dataMap  = {};   // name → {offset, size}  (offset relativo a DS)
+let halted   = false;
+let parsed   = false;
+let currentLineIdx = -1; // Tracciamento globale per il rendering dell'evidenziatore
+
+const REG16 = ['AX','BX','CX','DX','SI','DI','SP','BP','CS','DS','SS','ES'];
+const REG8  = {
+  AH:['AX',8], AL:['AX',0],
+  BH:['BX',8], BL:['BX',0],
+  CH:['CX',8], CL:['CX',0],
+  DH:['DX',8], DL:['DX',0],
+};
+
+function initCPU() {
+  mem   = new Uint8Array(MEM_SIZE);
+  regs  = {AX:0,BX:0,CX:0,DX:0,SI:0,DI:0,SP:0x0100,BP:0,CS:0,DS:0x1000,SS:0x2000,ES:0};
+  flags = {CF:0,ZF:0,SF:0,OF:0,PF:0,AF:0,DF:0,IF:1};
+  ip = 0; cycles = 0; halted = false; parsed = false; currentLineIdx = -1;
+  instList = []; labels = {}; dataMap = {};
+}
+
+// ── Register helpers ────────────────────────────────────
+function getReg(name) {
+  const n = name.toUpperCase();
+  if (n === 'IP') return ip;
+  if (REG16.includes(n)) return regs[n] & 0xFFFF;
+  if (REG8[n]) { const [r,sh]=REG8[n]; return (regs[r]>>sh)&0xFF; }
+  return null; // not a register
+}
+function setReg(name, val) {
+  const n = name.toUpperCase();
+  if (n === 'IP') { ip = val & 0xFFFF; return; }
+  if (REG16.includes(n)) { regs[n] = val & 0xFFFF; return; }
+  if (REG8[n]) {
+    const [r,sh]=REG8[n];
+    if (sh===8) regs[r] = (regs[r]&0x00FF)|((val&0xFF)<<8);
+    else        regs[r] = (regs[r]&0xFF00)|(val&0xFF);
+    return;
+  }
+}
+function isReg(n) { n=n.toUpperCase(); return n==='IP'||REG16.includes(n)||n in REG8; }
+function is8bit(n) { return n.toUpperCase() in REG8; }
+
+// ── Memory helpers ──────────────────────────────────────
+function memReadB(physAddr) { return mem[physAddr] & 0xFF; }
+function memWriteB(physAddr, v) { mem[physAddr] = v & 0xFF; }
+function memReadW(physAddr) { return mem[physAddr]|(mem[physAddr+1]<<8); }
+function memWriteW(physAddr, v) { mem[physAddr]=v&0xFF; mem[physAddr+1]=(v>>8)&0xFF; }
+
+// ── Operand resolver ────────────────────────────────────
+// Returns {val, phys} — phys is set when operand is a memory location
+function resolve(op, want8) {
+  if (op === undefined || op === null) return {val:0};
+  op = op.trim();
+  const up = op.toUpperCase();
+
+  // immediate hex (must start with digit)
+  if (/^[0-9][0-9A-Fa-f]*[Hh]$/.test(op)) return {val: parseInt(op,16)};
+  // immediate dec
+  if (/^-?\d+$/.test(op)) return {val: parseInt(op,10)};
+  // register
+  if (isReg(up)) return {val: getReg(up)};
+  // [reg] or [reg+offset] or [varname]
+  if (op.startsWith('[') && op.endsWith(']')) {
+    const inner = op.slice(1,-1).trim().toUpperCase();
+    let addr = resolveMemAddr(inner);
+    const phys = DS_BASE + addr;
+    const val = want8 ? memReadB(phys) : memReadW(phys);
+    return {val, phys};
+  }
+  // variable name (direct memory)
+  if (dataMap[up] !== undefined) {
+    const phys = DS_BASE + dataMap[up].offset;
+    const sz = dataMap[up].size;
+    const val = (sz===1 || want8) ? memReadB(phys) : memReadW(phys);
+    return {val, phys, size: sz};
+  }
+  // label (for jumps)
+  if (labels[up] !== undefined) return {val: labels[up]};
+  // unknown → 0
+  return {val: 0};
+}
+
+function resolveMemAddr(inner) {
+  // inner: BX, SI, BX+SI, BX+4, varname, etc.
+  // Simple cases used in this textbook
+  if (isReg(inner)) return getReg(inner);
+  if (dataMap[inner] !== undefined) return dataMap[inner].offset;
+  // BX+SI style
+  const parts = inner.split('+').map(s=>s.trim());
+  let addr = 0;
+  for (const p of parts) {
+    if (isReg(p)) addr += getReg(p);
+    else if (dataMap[p] !== undefined) addr += dataMap[p].offset;
+    else if (/^[0-9A-Fa-f]+[Hh]$/i.test(p)) addr += parseInt(p,16);
+    else if (/^\d+$/.test(p)) addr += parseInt(p,10);
+  }
+  return addr;
+}
+
+function writeOp(op, val, want8) {
+  const up = op.trim().toUpperCase();
+  if (isReg(up)) { setReg(up, val); return; }
+  if (op.trim().startsWith('[') && op.trim().endsWith(']')) {
+    const inner = op.trim().slice(1,-1).trim().toUpperCase();
+    const addr = resolveMemAddr(inner);
+    if (want8) memWriteB(DS_BASE+addr, val);
+    else       memWriteW(DS_BASE+addr, val);
+    return;
+  }
+  if (dataMap[up] !== undefined) {
+    const phys = DS_BASE + dataMap[up].offset;
+    if (dataMap[up].size===1 || want8) memWriteB(phys, val);
+    else memWriteW(phys, val);
+    return;
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// PARSER
+// ═══════════════════════════════════════════════════════
+function splitCSV(s) {
+  // split on comma, but not inside quotes
+  const parts=[]; let cur='', inQ=false, q='';
+  for (const c of s) {
+    if (inQ) { cur+=c; if(c===q) inQ=false; }
+    else if (c==="'"||c==='"') { inQ=true; q=c; cur+=c; }
+    else if (c===',') { parts.push(cur); cur=''; }
+    else cur+=c;
+  }
+  if (cur.trim()) parts.push(cur);
+  return parts;
+}
+
+function parseImm(s) {
+  s = s.trim();
+  if (/^[0-9][0-9A-Fa-f]*[Hh]$/i.test(s)) return parseInt(s,16);
+  if (/^-?\d+$/.test(s)) return parseInt(s,10);
+  return 0;
+}
+
+function doParseSource(src) {
+  initCPU();
+  const lines = src.split('\n');
+  let inData=false, inCode=false, inStack=false;
+  let dataOffset = 0;
+  const newInst = [], newLabels = {}, newData = {};
+
+  for (let i=0; i<lines.length; i++) {
+    // strip comment
+    let raw = lines[i];
+    // remove ; comments (not inside strings)
+    let line = ''; let inQ2=false, q2='';
+    for (const c of raw) {
+      if (inQ2) { line+=c; if(c===q2) inQ2=false; }
+      else if (c==="'"||c==='"') { inQ2=true; q2=c; line+=c; }
+      else if (c===';') break;
+      else line+=c;
+    }
+    line = line.trim();
+    if (!line) continue;
+
+    const up = line.toUpperCase();
+
+    // segment switches
+    if (/^DATA\s+SEGMENT$/i.test(line)) { inData=true; inCode=false; inStack=false; continue; }
+    if (/^STACK\s+SEGMENT$/i.test(line)) { inStack=true; inData=false; inCode=false; continue; }
+    if (/^CODE\s+SEGMENT$/i.test(line)) { inCode=true; inData=false; inStack=false; continue; }
+    if (/^ENDS$/i.test(line)) { inData=false; inCode=false; inStack=false; continue; }
+    if (/^END\s+/i.test(line)||/^END$/i.test(line)) continue;
+    if (/^NAME\s+/i.test(line)) continue;
+
+    // ── DATA SEGMENT ──
+    if (inData) {
+      // match: varname  DB/DW/DD  values...
+      const mDir = line.match(/^(\w+)\s+(DB|DW|DD)\s+(.+)$/i);
+      if (mDir) {
+        const vname = mDir[1].toUpperCase();
+        const dir   = mDir[2].toUpperCase();
+        const vstr  = mDir[3].trim();
+        const size  = dir==='DB' ? 1 : dir==='DW' ? 2 : 4;
+        newData[vname] = {offset: dataOffset, size};
+
+        if (vstr.startsWith('"') || vstr.startsWith("'")) {
+          // string (possibly with $ inside)
+          const parts = splitCSV(vstr);
+          for (const p of parts) {
+            const pt = p.trim();
+            if (pt.startsWith('"')||pt.startsWith("'")) {
+              const inner = pt.slice(1, pt.length-1);
+              for (let k=0; k<inner.length; k++)
+                memWriteB(DS_BASE + dataOffset++, inner.charCodeAt(k));
+            } else {
+              memWriteB(DS_BASE + dataOffset++, parseImm(pt)&0xFF);
+            }
+          }
+        } else if (vstr==='?') {
+          dataOffset += size;
+        } else {
+          // numeric or array: val1,val2,...  or  N dup(val)
+          const dupMatch = vstr.match(/^(\d+)\s+DUP\s*\((.+)\)$/i);
+          if (dupMatch) {
+            const count = parseInt(dupMatch[1]);
+            const fill  = parseImm(dupMatch[2]);
+            for (let k=0; k<count; k++) {
+              if (size===1) memWriteB(DS_BASE+dataOffset++, fill);
+              else { memWriteW(DS_BASE+dataOffset, fill); dataOffset+=size; }
+            }
+          } else {
+            const parts = splitCSV(vstr);
+            for (const p of parts) {
+              const v = parseImm(p.trim());
+              if (size===1) { memWriteB(DS_BASE+dataOffset++, v); }
+              else { memWriteW(DS_BASE+dataOffset, v); dataOffset+=size; }
+            }
+          }
+        }
+        continue;
+      }
+    }
+
+    // ── STACK SEGMENT ──
+    if (inStack) continue; // dw 128 dup(0) — ignoriamo, SS già init
+
+    // ── CODE SEGMENT ──
+    if (inCode) {
+      // label: (con due punti)
+      const lblMatch = line.match(/^(\w+)\s*:(.*)$/);
+      if (lblMatch) {
+        newLabels[lblMatch[1].toUpperCase()] = newInst.length;
+        line = lblMatch[2].trim();
+        if (!line) continue;
+      }
+      newInst.push({src: line, lineNo: i+1, srcLineIdx: i});
+    }
+  }
+
+  instList = newInst;
+  labels   = newLabels;
+  dataMap  = newData;
+  ip = 0;
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════
+// EXECUTOR
+// ═══════════════════════════════════════════════════════
+function updateFlags16(result, a, b, sub) {
+  const r = result & 0xFFFF;
+  flags.ZF = r===0 ? 1:0;
+  flags.SF = (r&0x8000) ? 1:0;
+  flags.CF = (result>0xFFFF||result<0) ? 1:0;
+  const as=a&0x8000, bs=b&0x8000, rs=r&0x8000;
+  flags.OF = sub ? (as!==bs && rs===bs)?1:0 : (as===bs && rs!==as)?1:0;
+  let p=r&0xFF; p^=p>>4; p^=p>>2; p^=p>>1; flags.PF=(~p)&1;
+}
+function updateFlags8(result, a, b, sub) {
+  const r = result & 0xFF;
+  flags.ZF = r===0?1:0;
+  flags.SF = (r&0x80)?1:0;
+  flags.CF = (result>0xFF||result<0)?1:0;
+  const as=a&0x80, bs=b&0x80, rs=r&0x80;
+  flags.OF = sub ? (as!==bs && rs===bs)?1:0 : (as===bs && rs!==as)?1:0;
+  let p=r&0xFF; p^=p>>4; p^=p>>2; p^=p>>1; flags.PF=(~p)&1;
+}
+
+// tokenize respecting quotes
+function tokenize(line) {
+  const toks=[]; let cur='', inQ=false, q='';
+  for (const c of line) {
+    if (inQ) { cur+=c; if(c===q) inQ=false; }
+    else if (c==="'"||c==='"') { inQ=true; q=c; cur+=c; }
+    else if (/\s/.test(c)) { if(cur){toks.push(cur);cur='';} }
+    else cur+=c;
+  }
+  if (cur) toks.push(cur);
+  return toks;
+}
+
+function execOne() {
+  if (halted || ip >= instList.length) return false;
+  const {src, lineNo, srcLineIdx} = instList[ip];
+  const prevRegs = {...regs};
+
+  document.getElementById('st-instr').textContent = src.trim();
+  highlightLine(srcLineIdx);
+
+  const toks = tokenize(src);
+  const mnem = (toks[0]||'').toUpperCase();
+  // args: rest joined then split by comma (outside quotes)
+  const argStr = toks.slice(1).join(' ');
+  const args = splitCSV(argStr).map(s=>s.trim()).filter(Boolean);
+  const A = args[0], B = args[1];
+
+  // detect 8-bit operation: either operand is 8-bit register or varname with size=1
+  function is8op() {
+    if (A && is8bit(A)) return true;
+    if (B && is8bit(B)) return true;
+    if (A && dataMap[A.toUpperCase()] && dataMap[A.toUpperCase()].size===1) return true;
+    if (B && dataMap[B.toUpperCase()] && dataMap[B.toUpperCase()].size===1) return true;
+    return false;
+  }
+  const w8 = is8op();
+  const mask = w8 ? 0xFF : 0xFFFF;
+
+  let jumped = false;
+
+  try { switch(mnem) {
+
+    case 'MOV': {
+      let val;
+      if (B && B.toUpperCase()==='DATA') val = regs.DS;
+      else val = resolve(B, w8).val;
+      writeOp(A, val, w8);
+      break;
+    }
+    case 'LEA': {
+      // LEA reg, varname  → load effective address (offset in DS)
+      const upB = (B||'').toUpperCase();
+      let addr = 0;
+      if (dataMap[upB] !== undefined) addr = dataMap[upB].offset;
+      else if (B && B.startsWith('[') && B.endsWith(']'))
+        addr = resolveMemAddr(B.slice(1,-1).trim().toUpperCase());
+      writeOp(A, addr, false);
+      break;
+    }
+    case 'ADD': {
+      const a=resolve(A,w8).val, b=resolve(B,w8).val;
+      const r=a+b;
+      w8 ? updateFlags8(r,a,b,false) : updateFlags16(r,a,b,false);
+      writeOp(A, r, w8);
+      break;
+    }
+    case 'SUB': {
+      const a=resolve(A,w8).val, b=resolve(B,w8).val;
+      const r=a-b;
+      w8 ? updateFlags8(r,a,b,true) : updateFlags16(r,a,b,true);
+      writeOp(A, r, w8);
+      break;
+    }
+    case 'INC': {
+      const a=resolve(A,w8).val, r=a+1;
+      w8 ? updateFlags8(r,a,1,false) : updateFlags16(r,a,1,false);
+      writeOp(A, r, w8);
+      break;
+    }
+    case 'DEC': {
+      const a=resolve(A,w8).val, r=a-1;
+      w8 ? updateFlags8(r,a,1,true) : updateFlags16(r,a,1,true);
+      writeOp(A, r, w8);
+      break;
+    }
+    case 'MUL': {
+      const src=resolve(A,w8).val;
+      if (w8) { const r=getReg('AL')*src; setReg('AX',r); }
+      else { const r=regs.AX*src; regs.AX=r&0xFFFF; regs.DX=(r>>16)&0xFFFF; }
+      break;
+    }
+    case 'DIV': {
+      const src=resolve(A,w8).val;
+      if (!src) { output('Errore: divisione per zero','err'); return false; }
+      if (w8) {
+        const d=regs.AX; setReg('AL',Math.trunc(d/src)&0xFF); setReg('AH',(d%src)&0xFF);
+      } else {
+        const d=(regs.DX<<16)|regs.AX; regs.AX=Math.trunc(d/src)&0xFFFF; regs.DX=(d%src)&0xFFFF;
+      }
+      break;
+    }
+    case 'AND': {
+      const r=resolve(A,w8).val & resolve(B,w8).val;
+      flags.CF=0; flags.OF=0; flags.ZF=r===0?1:0; flags.SF=(r&(w8?0x80:0x8000))?1:0;
+      writeOp(A,r,w8); break;
+    }
+    case 'OR': {
+      const r=resolve(A,w8).val | resolve(B,w8).val;
+      flags.CF=0; flags.OF=0; flags.ZF=r===0?1:0; flags.SF=(r&(w8?0x80:0x8000))?1:0;
+      writeOp(A,r,w8); break;
+    }
+    case 'XOR': {
+      const r=resolve(A,w8).val ^ resolve(B,w8).val;
+      flags.CF=0; flags.OF=0; flags.ZF=r===0?1:0; flags.SF=(r&(w8?0x80:0x8000))?1:0;
+      writeOp(A,r,w8); break;
+    }
+    case 'NOT': {
+      writeOp(A,(~resolve(A,w8).val)&mask,w8); break;
+    }
+    case 'NEG': {
+      const a=resolve(A,w8).val, r=(-a)&mask;
+      w8 ? updateFlags8(r,0,a,true) : updateFlags16(r,0,a,true);
+      writeOp(A,r,w8); break;
+    }
+    case 'SHL': case 'SAL': {
+      let v=resolve(A,w8).val; const cnt=resolve(B,false).val;
+      for(let k=0;k<cnt;k++){flags.CF=(v&(w8?0x80:0x8000))?1:0;v=(v<<1)&mask;}
+      flags.ZF=v===0?1:0; flags.SF=(v&(w8?0x80:0x8000))?1:0;
+      writeOp(A,v,w8); break;
+    }
+    case 'SHR': {
+      let v=resolve(A,w8).val; const cnt=resolve(B,false).val;
+      for(let k=0;k<cnt;k++){flags.CF=v&1;v=(v>>>1)&mask;}
+      flags.ZF=v===0?1:0; flags.SF=0;
+      writeOp(A,v,w8); break;
+    }
+    case 'SAR': {
+      let v=resolve(A,w8).val; const cnt=resolve(B,false).val;
+      const sign=w8?0x80:0x8000;
+      for(let k=0;k<cnt;k++){flags.CF=v&1;v=((v>>1)|(v&sign))&mask;}
+      flags.ZF=v===0?1:0; flags.SF=(v&sign)?1:0;
+      writeOp(A,v,w8); break;
+    }
+    case 'CMP': {
+      const a=resolve(A,w8).val, b=resolve(B,w8).val, r=a-b;
+      w8 ? updateFlags8(r,a,b,true) : updateFlags16(r,a,b,true);
+      break;
+    }
+    case 'TEST': {
+      const r=resolve(A,w8).val & resolve(B,w8).val;
+      flags.CF=0; flags.OF=0; flags.ZF=r===0?1:0; flags.SF=(r&(w8?0x80:0x8000))?1:0;
+      break;
+    }
+    case 'XCHG': {
+      const va=resolve(A,w8).val, vb=resolve(B,w8).val;
+      writeOp(A,vb,w8); writeOp(B,va,w8); break;
+    }
+    case 'JMP': {
+      const t=labels[(A||'').toUpperCase()];
+      if(t===undefined){output(`Label non trovata: ${A}`,'err');return false;}
+      ip=t; jumped=true; break;
+    }
+    case 'JE': case 'JZ':  { const t=lbl(A); if(t===null)return false; if(flags.ZF){ip=t;jumped=true;} break; }
+    case 'JNE':case 'JNZ': { const t=lbl(A); if(t===null)return false; if(!flags.ZF){ip=t;jumped=true;} break; }
+    case 'JL': case 'JNGE':{ const t=lbl(A); if(t===null)return false; if(flags.SF!==flags.OF){ip=t;jumped=true;} break; }
+    case 'JLE':case 'JNG': { const t=lbl(A); if(t===null)return false; if(flags.ZF||(flags.SF!==flags.OF)){ip=t;jumped=true;} break; }
+    case 'JG': case 'JNLE':{ const t=lbl(A); if(t===null)return false; if(!flags.ZF&&flags.SF===flags.OF){ip=t;jumped=true;} break; }
+    case 'JGE':case 'JNL': { const t=lbl(A); if(t===null)return false; if(flags.SF===flags.OF){ip=t;jumped=true;} break; }
+    case 'JB': case 'JC':  { const t=lbl(A); if(t===null)return false; if(flags.CF){ip=t;jumped=true;} break; }
+    case 'JNB':case 'JNC': { const t=lbl(A); if(t===null)return false; if(!flags.CF){ip=t;jumped=true;} break; }
+    case 'JA': case 'JNBE':{ const t=lbl(A); if(t===null)return false; if(!flags.CF&&!flags.ZF){ip=t;jumped=true;} break; }
+    case 'JBE':case 'JNA': { const t=lbl(A); if(t===null)return false; if(flags.CF||flags.ZF){ip=t;jumped=true;} break; }
+    case 'JS':  { const t=lbl(A); if(t===null)return false; if(flags.SF){ip=t;jumped=true;} break; }
+    case 'JNS': { const t=lbl(A); if(t===null)return false; if(!flags.SF){ip=t;jumped=true;} break; }
+    case 'JO':  { const t=lbl(A); if(t===null)return false; if(flags.OF){ip=t;jumped=true;} break; }
+    case 'JNO': { const t=lbl(A); if(t===null)return false; if(!flags.OF){ip=t;jumped=true;} break; }
+    case 'JCXZ':{ const t=lbl(A); if(t===null)return false; if(regs.CX===0){ip=t;jumped=true;} break; }
+    case 'LOOP': {
+      const t=lbl(A); if(t===null)return false;
+      regs.CX=(regs.CX-1)&0xFFFF;
+      if(regs.CX!==0){ip=t;jumped=true;}
+      break;
+    }
+    case 'LOOPE':case 'LOOPZ': {
+      const t=lbl(A); if(t===null)return false;
+      regs.CX=(regs.CX-1)&0xFFFF;
+      if(regs.CX!==0&&flags.ZF){ip=t;jumped=true;}
+      break;
+    }
+    case 'LOOPNE':case 'LOOPNZ': {
+      const t=lbl(A); if(t===null)return false;
+      regs.CX=(regs.CX-1)&0xFFFF;
+      if(regs.CX!==0&&!flags.ZF){ip=t;jumped=true;}
+      break;
+    }
+    case 'PUSH': {
+      const v=resolve(A,false).val;
+      regs.SP=(regs.SP-2)&0xFFFF;
+      memWriteW(SS_BASE+regs.SP, v);
+      break;
+    }
+    case 'POP': {
+      const v=memReadW(SS_BASE+regs.SP);
+      regs.SP=(regs.SP+2)&0xFFFF;
+      writeOp(A,v,false);
+      break;
+    }
+    case 'CALL': {
+      const t=lbl(A); if(t===null)return false;
+      regs.SP=(regs.SP-2)&0xFFFF;
+      memWriteW(SS_BASE+regs.SP, ip+1);
+      ip=t; jumped=true;
+      break;
+    }
+    case 'RET': {
+      const t=memReadW(SS_BASE+regs.SP);
+      regs.SP=(regs.SP+2)&0xFFFF;
+      ip=t; jumped=true;
+      break;
+    }
+    case 'INT': {
+      const n=parseImm(A);
+      if(n===0x21) {
+        const ah=getReg('AH');
+        if(ah===0x4C) {
+          output(`Programma terminato (AX=4C${getReg('AL').toString(16).toUpperCase().padStart(2,'0')}h)`,'ok');
+          halted=true; ip++; updateUI(prevRegs); return false;
+        }
+        if(ah===0x09) {
+          let s='', addr=DS_BASE+regs.DX;
+          for(let k=0;k<256;k++){const c=memReadB(addr+k);if(c===0x24||c===0)break;s+=String.fromCharCode(c);}
+          output('► '+s,'io');
+        } else if(ah===0x02) {
+          output('► '+String.fromCharCode(getReg('DL')),'io');
+        } else if(ah===0x01) {
+          setReg('AL',0x41);
+          output('[input simulato: AL = 41h = \'A\']','warn');
+        } else if(ah===0x0A) {
+          output('[INT 21h/0Ah: input stringa simulato]','warn');
+        } else {
+          output(`INT 21h AH=${ah.toString(16).toUpperCase()}h — non implementato`,'warn');
+        }
+      } else {
+        output(`INT ${n.toString(16).toUpperCase()}h — non implementato`,'warn');
+      }
+      break;
+    }
+    case 'NOP': break;
+    case 'CLC': flags.CF=0; break;
+    case 'STC': flags.CF=1; break;
+    case 'CMC': flags.CF^=1; break;
+    case 'CLD': flags.DF=0; break;
+    case 'STD': flags.DF=1; break;
+    case 'CLI': flags.IF=0; break;
+    case 'STI': flags.IF=1; break;
+    case 'CBW': setReg('AX',(getReg('AL')&0x80)?(0xFF00|getReg('AL')):getReg('AL')); break;
+    case 'CWD': regs.DX=(regs.AX&0x8000)?0xFFFF:0; break;
+    case 'PUSHF': regs.SP=(regs.SP-2)&0xFFFF; memWriteW(SS_BASE+regs.SP,flagsToWord()); break;
+    case 'POPF': { const fw=memReadW(SS_BASE+regs.SP); regs.SP=(regs.SP+2)&0xFFFF; wordToFlags(fw); break; }
+
+    default:
+      output(`Istruzione non riconosciuta: ${mnem} (riga ${lineNo})`,'warn');
+  }} catch(e) {
+    output(`Errore runtime riga ${lineNo}: ${e.message}`,'err');
+    return false;
+  }
+
+  if (!jumped) ip++;
+  cycles++;
+  updateUI(prevRegs);
+  document.getElementById('st-ip').textContent = ip.toString(16).toUpperCase().padStart(4,'0')+'h';
+  document.getElementById('st-cycles').textContent = cycles;
+  return true;
+}
+
+function lbl(name) {
+  const t = labels[(name||'').toUpperCase()];
+  if (t===undefined) { output(`Label non trovata: ${name}`,'err'); return null; }
+  return t;
+}
+function flagsToWord() {
+  return (flags.CF)|(flags.PF<<2)|(flags.AF<<4)|(flags.ZF<<6)|
+         (flags.SF<<7)|(flags.IF<<9)|(flags.DF<<10)|(flags.OF<<11)|0xF002;
+}
+function wordToFlags(w) {
+  flags.CF=w&1; flags.PF=(w>>2)&1; flags.AF=(w>>4)&1; flags.ZF=(w>>6)&1;
+  flags.SF=(w>>7)&1; flags.IF=(w>>9)&1; flags.DF=(w>>10)&1; flags.OF=(w>>11)&1;
+}
+
+// ═══════════════════════════════════════════════════════
+// UI
+// ═══════════════════════════════════════════════════════
+function output(msg, cls='info') {
+  const div=document.getElementById('output');
+  const p=document.createElement('div');
+  p.className=cls;
+  const ts=new Date().toLocaleTimeString('it-IT',{hour12:false});
+  p.textContent=`[${ts}] ${msg}`;
+  div.appendChild(p);
+  div.scrollTop=div.scrollHeight;
+}
+
+function h4(v) { return v.toString(16).toUpperCase().padStart(4,'0'); }
+function h2(v) { return v.toString(16).toUpperCase().padStart(2,'0'); }
+
+function updateUI(prev) {
+  // 16-bit regs
+  for (const n of ['AX','BX','CX','DX','SI','DI','SP','BP','CS','DS','SS','ES']) {
+    const el=document.getElementById('rv-'+n);
+    const ri=document.getElementById('ri-'+n);
+    if (!el) continue;
+    el.textContent=h4(regs[n]);
+    ri.classList.toggle('changed', prev && prev[n]!==regs[n]);
+  }
+  document.getElementById('rv-IP').textContent=h4(ip);
+  // AH·AL etc
+  for (const [r,hi,lo] of [['A','AH','AL'],['B','BH','BL'],['C','CH','CL'],['D','DH','DL']]) {
+    const el=document.getElementById('rv-'+r+'HL');
+    const ri=document.getElementById('ri-'+r+'HL');
+    if(!el)continue;
+    const vh=(regs[r+'X']>>8)&0xFF, vl=regs[r+'X']&0xFF;
+    el.textContent=h2(vh)+'·'+h2(vl);
+    ri.classList.toggle('changed', prev && prev[r+'X']!==regs[r+'X']);
+  }
+  // flags
+  for (const f of ['CF','ZF','SF','OF','PF','AF','DF','IF'])
+    document.getElementById('f-'+f).classList.toggle('on', !!flags[f]);
+  updateStack();
+  updateMem();
+}
+
+function updateStack() {
+  const div=document.getElementById('stack-view');
+  div.innerHTML='';
+  const top=0x0100;
+  if (regs.SP >= top) { div.innerHTML='<span style="color:var(--muted)">vuoto</span>'; return; }
+  for (let off=top-2; off>=regs.SP; off-=2) {
+    const v=memReadW(SS_BASE+off);
+    const row=document.createElement('div');
+    row.className='stack-item';
+    row.innerHTML=`<span class="stack-addr">${h4(off)}h</span><span class="stack-v">${h4(v)}h</span>`
+      +(off===regs.SP?`<span class="sp-marker"> ← SP</span>`:'');
+    div.appendChild(row);
+  }
+}
+
+function updateMem() {
+  const div=document.getElementById('mem-view');
+  div.innerHTML='';
+  for (let row=0; row<4; row++) {
+    const off=row*16;
+    let bytes='', ascii='';
+    for (let b=0;b<16;b++) {
+      const v=memReadB(DS_BASE+off+b);
+      bytes+=h2(v)+' ';
+      ascii+=(v>=0x20&&v<0x7F)?String.fromCharCode(v):'.';
+    }
+    const r=document.createElement('div');
+    r.className='mem-row';
+    r.innerHTML=`<span class="mem-addr">${h4(off)}h</span><span class="mem-bytes">${bytes.trim()}</span><span class="mem-ascii">${ascii}</span>`;
+    div.appendChild(r);
+  }
+}
+
+function highlightLine(lineIdx) {
+  currentLineIdx = lineIdx;
+  const ed=document.getElementById('editor');
+  const hl=document.getElementById('editor-hl');
+  
+  // Bug di calcolo risolto: uso dell'altezza riga fissa (13px * 1.75 line-height = 22.75px)
+  const lh = 22.75; 
+  const pt = 10; // padding-top
+  const top = pt + lineIdx * lh;
+  
+  hl.style.display='block';
+  hl.style.height = lh + 'px';
+  
+  // Auto-scroll funzionante
+  const visible = ed.clientHeight;
+  if (top < ed.scrollTop + 20) ed.scrollTop = Math.max(0, top - 40);
+  else if (top + lh > ed.scrollTop + visible - 20) ed.scrollTop = top - visible + lh + 40;
+  lineNums.scrollTop = ed.scrollTop;
+
+  // Bug di ancoraggio dinamico risolto: l'evidenziatore compensa l'ammontare dello scroll
+  hl.style.top = (top - ed.scrollTop) + 'px';
+}
+
+// ── Line numbers ────────────────────────────────────────
+const editor=document.getElementById('editor');
+const lineNums=document.getElementById('line-nums');
+function updateLineNums() {
+  const n=editor.value.split('\n').length;
+  lineNums.textContent=Array.from({length:n},(_,i)=>i+1).join('\n');
+  lineNums.scrollTop=editor.scrollTop;
+}
+editor.addEventListener('input', updateLineNums);
+
+// Risolto bug di spostamento dell'evidenziatore quando l'utente scatta lo scroll manuale
+editor.addEventListener('scroll',()=>{ 
+  lineNums.scrollTop=editor.scrollTop; 
+  if (currentLineIdx !== -1) {
+    const hl=document.getElementById('editor-hl');
+    hl.style.top = (10 + currentLineIdx * 22.75 - editor.scrollTop) + 'px';
+  }
+});
+
+editor.addEventListener('keydown', e=>{
+  if(e.key==='Tab'){e.preventDefault();
+    const s=editor.selectionStart;
+    editor.value=editor.value.slice(0,s)+'    '+editor.value.slice(editor.selectionEnd);
+    editor.selectionStart=editor.selectionEnd=s+4; updateLineNums();}
+});
+
+// ── Speed ────────────────────────────────────────────────
+// level 1-6 → delay in ms between instructions (0 = max speed batch)
+const SPEED_LABELS = ['lenta','lenta+','media','veloce','veloce+','max'];
+const SPEED_DELAYS = [800, 300, 100, 30, 8, 0]; // ms; 0 = batch mode
+const SPEED_BATCH  = [1, 1, 1, 1, 4, 50];       // istruzioni per tick a vel 0
+
+const slider = document.getElementById('speed-slider');
+const speedLabel = document.getElementById('speed-label');
+function getSpeed() { return parseInt(slider.value)-1; }
+slider.addEventListener('input', ()=>{
+  speedLabel.textContent = SPEED_LABELS[getSpeed()];
+});
+speedLabel.textContent = SPEED_LABELS[getSpeed()];
+
+// ── Async runner ─────────────────────────────────────────
+let runTimer = null;
+let paused = false;
+
+function stopRunner() {
+  if (runTimer) { clearTimeout(runTimer); runTimer=null; }
+  paused = false;
+  // Bug dell'entità HTML risolto via innerHTML
+  document.getElementById('btn-run').innerHTML='&#9654; Esegui';
+  document.getElementById('btn-run').disabled = false;
+  document.getElementById('btn-pause').style.display='none';
+  document.getElementById('btn-step').disabled = false;
+}
+
+function runStep() {
+  if (paused || halted || ip >= instList.length) {
+    if (!paused) { stopRunner(); if(!halted) output('Fine del codice.','ok'); }
+    return;
+  }
+  const lvl = getSpeed();
+  const delay = SPEED_DELAYS[lvl];
+  const batch = SPEED_BATCH[lvl];
+
+  let ok = true;
+  for (let k=0; k<batch && ok && !halted && ip<instList.length; k++) {
+    ok = execOne();
+  }
+  if (!ok || halted || ip >= instList.length) {
+    stopRunner();
+    if (!halted && ip >= instList.length) output('Fine del codice.','ok');
+    return;
+  }
+  runTimer = setTimeout(runStep, delay);
+}
+
+// ── Controls ────────────────────────────────────────────
+function doReset() {
+  stopRunner();
+  initCPU();
+  parsed=false;
+  currentLineIdx = -1;
+  updateUI({});
+  document.getElementById('st-instr').textContent='—';
+  document.getElementById('st-ip').textContent='0000h';
+  document.getElementById('st-cycles').textContent='0';
+  document.getElementById('editor-hl').style.display='none';
+}
+
+function doParse() {
+  doReset();
+  try {
+    doParseSource(editor.value);
+    output(`Parse OK — ${instList.length} istruzioni, label: ${Object.keys(labels).join(', ')||'nessuna'}`,'ok');
+    const vars=Object.keys(dataMap).map(k=>`${k}@${h4(dataMap[k].offset)}h(${dataMap[k].size}B)`).join(' ');
+    if(vars) output('Variabili: '+vars,'info');
+    parsed=true;
+    return true;
+  } catch(e) {
+    output('Errore parser: '+e.message,'err');
+    return false;
+  }
+}
+
+document.getElementById('btn-run').addEventListener('click',()=>{
+  if (runTimer) return; // already running
+  if(!doParse()) return;
+  output('── Avvio esecuzione ──','info');
+  document.getElementById('btn-run').disabled = true;
+  document.getElementById('btn-pause').style.display = '';
+  document.getElementById('btn-step').disabled = true;
+  paused = false;
+  runStep();
+});
+
+document.getElementById('btn-pause').addEventListener('click',()=>{
+  if (!paused) {
+    paused = true;
+    if (runTimer) { clearTimeout(runTimer); runTimer=null; }
+    // Bug dell'entità HTML risolto via innerHTML
+    document.getElementById('btn-pause').innerHTML='&#9654; Riprendi';
+  } else {
+    paused = false;
+    // Bug dell'entità HTML risolto via innerHTML
+    document.getElementById('btn-pause').innerHTML='&#9646;&#9646; Pausa';
+    runStep();
+  }
+});
+
+document.getElementById('btn-step').addEventListener('click',()=>{
+  if(!parsed){ if(!doParse()) return; output('── Step mode ──','info'); }
+  if(halted||ip>=instList.length){ output('Programma terminato.','ok'); return; }
+  execOne();
+});
+
+
+// ── Examples dropdown ────────────────────────────────────
+document.getElementById('ex-select').addEventListener('change', function() {
+  doReset();
+  editor.value = EXAMPLES[parseInt(this.value)];
+  updateLineNums();
+  updateUI({});
+  document.getElementById('output').innerHTML = '';
+  output('Esempio caricato: ' + this.options[this.selectedIndex].text, 'info');
+});
+document.getElementById('btn-reset').addEventListener('click',()=>{ doReset(); output('CPU reset.','info'); });
+document.getElementById('btn-clear').addEventListener('click',()=>{ document.getElementById('output').innerHTML=''; });
+
+// ── Init ────────────────────────────────────────────────
+initCPU();
+editor.value=DEFAULT;
+updateLineNums();
+updateUI({});
+output('EMU8086 pronto — sintassi Internetworking Vol.1','ok');
+output('MOV LEA ADD SUB INC DEC MUL DIV AND OR XOR NOT NEG SHL SHR SAR CMP TEST XCHG PUSH POP CALL RET INT 21h LOOP CBW CWD NOP CLC STC CMC CLD STD CLI STI PUSHF POPF','info');
+output('JUMP: JMP(incond.) | JE/JZ(=) JNE/JNZ(≠) | JG/JNLE(>) JGE/JNL(>=) JL/JNGE(<) JLE/JNG(<=) | JA/JNBE JB/JC JBE/JNA JNB/JNC | JS JNS JO JNO JCXZ','info');
+</script>
+</body>
+</html>
